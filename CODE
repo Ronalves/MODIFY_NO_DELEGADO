@@ -1,3 +1,12 @@
+ 
+ LER O LINK :    https://blogs.sap.com/2017/12/15/bopf-working-on-delegated-nodes/
+ 
+ 
+ 
+ 
+ 
+ 
+ 
  DATA: lt_root       TYPE /scmtms/t_sfir_root_k,
           lt_item       TYPE /scmtms/t_sfir_item_k,
           lt_root_os    TYPE /scmtms/t_tor_root_k,
