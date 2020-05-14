@@ -1,0 +1,240 @@
+ DATA: lt_root       TYPE /scmtms/t_sfir_root_k,
+          lt_item       TYPE /scmtms/t_sfir_item_k,
+          lt_root_os    TYPE /scmtms/t_tor_root_k,
+          lt_root_to    TYPE /scmtms/t_tor_root_k,
+          lt_item_os    TYPE /scmtms/t_tor_item_tr_k,
+          lt_item_to    TYPE /scmtms/t_tor_item_tr_k,
+          lt_stop_os    TYPE /scmtms/t_tor_stop_k,
+          lt_txt        TYPE /bobf/t_txc_root_k,
+          lt_key        TYPE /bobf/t_frw_key,
+          lt_key_os     TYPE /bobf/t_frw_key,
+          lt_mod        TYPE /bobf/t_frw_modification,
+          lr_s_txt_root TYPE REF TO /bobf/s_txc_root_k,
+          lr_s_txt_text TYPE REF TO /bobf/s_txc_txt_k,
+          lr_s_txt_cont TYPE REF TO /bobf/s_txc_con_k,
+          lo_change     TYPE REF TO /bobf/if_tra_change,
+          lo_message    TYPE REF TO /bobf/if_frw_message,
+          lv_text       TYPE string,
+          lv_loc        TYPE /sapapo/locno,
+          lv_wm         TYPE /sapapo/ewm_warehouse_number.
+
+    DATA: ls_key    TYPE /bobf/s_frw_key,
+          ls_key_os TYPE /bobf/s_frw_key.
+
+    DATA(lo_tm) = /bobf/cl_tra_serv_mgr_factory=>get_service_manager( /scmtms/if_tor_c=>sc_bo_key ).
+
+    io_read->retrieve(
+      EXPORTING
+        iv_node         = /scmtms/if_suppfreightinvreq_c=>sc_node-root
+        it_key          = it_key
+        iv_fill_data    = abap_true
+      IMPORTING
+        eo_message    = eo_message
+        et_data       = lt_root
+        et_failed_key = et_failed_key ).
+
+    IF lt_root[] IS NOT INITIAL.
+      io_read->retrieve_by_association(
+      EXPORTING
+        iv_node         = /scmtms/if_suppfreightinvreq_c=>sc_node-root
+        iv_association =  /scmtms/if_suppfreightinvreq_c=>sc_association-root-item
+        it_key          = it_key
+        iv_fill_data    = abap_true
+      IMPORTING
+        eo_message    = eo_message
+        et_data       = lt_item
+        et_failed_key = et_failed_key ).
+
+      LOOP AT lt_item INTO DATA(ls_item).
+        ls_key-key = ls_item-tor_root_key.
+        APPEND ls_key TO lt_key.
+      ENDLOOP.
+
+      IF lt_key[] IS NOT INITIAL.
+        lo_tm->retrieve(
+          EXPORTING
+           iv_node_key  = /scmtms/if_tor_c=>sc_node-root
+           it_key       = lt_key
+         IMPORTING
+           et_data      = lt_root_os ).
+
+        IF lt_root_os[] IS NOT INITIAL AND lt_root_os[ 1 ]-tor_cat = /scmtms/if_tor_const=>sc_tor_category-service_order.
+          lo_tm->retrieve_by_association(
+            EXPORTING
+              iv_node_key    = /scmtms/if_tor_c=>sc_node-root
+              iv_association = /scmtms/if_tor_c=>sc_association-root-stop_first
+              it_key         = lt_key
+              iv_fill_data   = abap_true
+            IMPORTING
+              et_data        = lt_stop_os ).
+
+          lv_loc = lt_stop_os[ 1 ]-log_locid.
+
+          IF lv_loc IS NOT INITIAL.
+            CALL FUNCTION 'Y_TMF_GET_LOCMAP'
+              EXPORTING
+                i_loc_no       = lv_loc
+              IMPORTING
+                e_wm_wh_number = lv_wm.
+
+            DATA(lv_centro) = lv_wm.
+
+            lo_tm->retrieve_by_association(
+              EXPORTING
+                iv_node_key    = /scmtms/if_tor_c=>sc_node-root
+                iv_association = /scmtms/if_tor_c=>sc_association-root-item_tr
+                it_key         = lt_key
+                iv_fill_data   = abap_true
+              IMPORTING
+                et_data        = lt_item_os ).
+
+            LOOP AT lt_item_os INTO DATA(ls_item_os).
+              ls_key_os-key = ls_item_os-orig_ref_root.
+              APPEND ls_key_os TO lt_key_os.
+            ENDLOOP.
+
+            IF lt_key_os[] IS NOT INITIAL.
+              lo_tm->retrieve_by_association(
+               EXPORTING
+                 iv_node_key    = /scmtms/if_tor_c=>sc_node-root
+                 iv_association = /scmtms/if_tor_c=>sc_association-root-item_tr
+                 it_key         = lt_key_os
+                 iv_fill_data   = abap_true
+              IMPORTING
+                 et_data        = lt_item_to ).
+
+              LOOP AT lt_item_to INTO DATA(ls_item_to) WHERE item_cat = /scmtms/if_tor_const=>sc_tor_item_category-product.
+                DATA(lv_material) = ls_item_to-product_id.
+              ENDLOOP.
+
+              IF lv_material IS NOT INITIAL AND lv_centro IS NOT INITIAL.
+*root
+                APPEND INITIAL LINE TO lt_mod ASSIGNING FIELD-SYMBOL(<ls_mod>).
+                <ls_mod>-node           = /scmtms/if_suppfreightinvreq_c=>sc_node-textcollection.
+                <ls_mod>-change_mode    = /bobf/if_frw_c=>sc_modify_create.
+                <ls_mod>-source_node    = /scmtms/if_suppfreightinvreq_c=>sc_node-root.
+                <ls_mod>-association    = /scmtms/if_suppfreightinvreq_c=>sc_association-root-textcollection.
+                <ls_mod>-source_key     = lt_root[ 1 ]-key.
+                <ls_mod>-key            = /bobf/cl_frw_factory=>get_new_key( ).
+                CREATE DATA lr_s_txt_root.
+                lr_s_txt_root->key      = <ls_mod>-key.
+                <ls_mod>-data           = lr_s_txt_root.
+
+                "Create the TEXT node:
+                CREATE DATA lr_s_txt_text.
+                lr_s_txt_text->key = /bobf/cl_frw_factory=>get_new_key( ).
+                lr_s_txt_text->text_type = 'YMAT'.
+                lr_s_txt_text->language_code = sy-langu.
+                lr_s_txt_text->user_id_cr = sy-uname.
+                GET TIME STAMP FIELD DATA(lvtim).
+                lr_s_txt_text->datetime_cr = lvtim.
+
+                APPEND INITIAL LINE TO lt_mod ASSIGNING <ls_mod>.
+                DATA(mo_bo_conf) = /bobf/cl_frw_factory=>get_configuration( /scmtms/if_suppfreightinvreq_c=>sc_bo_key ).
+
+                DATA(lv_txt_key) = mo_bo_conf->get_content_key_mapping(
+                                   iv_content_cat      = /bobf/if_conf_c=>sc_content_nod
+                                   iv_do_content_key   = /bobf/if_txc_c=>sc_node-text
+                                   iv_do_root_node_key = /scmtms/if_suppfreightinvreq_c=>sc_node-textcollection ).
+
+                <ls_mod>-node = lv_txt_key.
+                <ls_mod>-change_mode = /bobf/if_frw_c=>sc_modify_create.
+                <ls_mod>-source_node = /scmtms/if_suppfreightinvreq_c=>sc_node-textcollection.
+                <ls_mod>-source_key  = lr_s_txt_root->key.
+                <ls_mod>-key         = lr_s_txt_text->key.
+                <ls_mod>-data        = lr_s_txt_text.
+
+                DATA(lv_txt_assoc) = mo_bo_conf->get_content_key_mapping(
+                       iv_content_cat      = /bobf/if_conf_c=>sc_content_ass
+                       iv_do_content_key   = /bobf/if_txc_c=>sc_association-root-text
+                       iv_do_root_node_key = /scmtms/if_suppfreightinvreq_c=>sc_node-textcollection ).
+
+                <ls_mod>-association = lv_txt_assoc.
+
+*create content
+                CREATE DATA lr_s_txt_cont.
+                lr_s_txt_cont->key = /bobf/cl_frw_factory=>get_new_key( ).
+                lv_text = |{ lv_material ALPHA = OUT }|.
+                lr_s_txt_cont->text = lv_text."lv_material.
+                APPEND INITIAL LINE TO lt_mod ASSIGNING <ls_mod>.
+                DATA(lv_assocon_key) = mo_bo_conf->get_content_key_mapping(
+                                  iv_content_cat      = /bobf/if_conf_c=>sc_content_ass
+                                  iv_do_content_key   = /bobf/if_txc_c=>sc_association-text-text_content
+                                  iv_do_root_node_key = /scmtms/if_suppfreightinvreq_c=>sc_node-textcollection ).
+
+                DATA(lv_txt_key2) = mo_bo_conf->get_content_key_mapping(
+                                   iv_content_cat      = /bobf/if_conf_c=>sc_content_nod
+                                   iv_do_content_key   = /bobf/if_txc_c=>sc_node-text_content
+                                   iv_do_root_node_key = /scmtms/if_suppfreightinvreq_c=>sc_node-textcollection ).
+
+                <ls_mod>-node = lv_txt_key2.
+                <ls_mod>-change_mode = /bobf/if_frw_c=>sc_modify_create.
+                <ls_mod>-source_node = lv_txt_key.
+                <ls_mod>-source_key  = lr_s_txt_text->key.
+                <ls_mod>-key         = lr_s_txt_cont->key .
+                <ls_mod>-data        = lr_s_txt_cont.
+                <ls_mod>-association = lv_assocon_key.
+*================================================================================================================
+*root
+                APPEND INITIAL LINE TO lt_mod ASSIGNING <ls_mod>.
+                <ls_mod>-node           = /scmtms/if_suppfreightinvreq_c=>sc_node-textcollection.
+                <ls_mod>-change_mode    = /bobf/if_frw_c=>sc_modify_create.
+                <ls_mod>-source_node    = /scmtms/if_suppfreightinvreq_c=>sc_node-root.
+                <ls_mod>-association    = /scmtms/if_suppfreightinvreq_c=>sc_association-root-textcollection.
+                <ls_mod>-source_key     = lt_root[ 1 ]-key.
+                <ls_mod>-key            = /bobf/cl_frw_factory=>get_new_key( ).
+                CREATE DATA lr_s_txt_root.
+                lr_s_txt_root->key      = <ls_mod>-key.
+                <ls_mod>-data           = lr_s_txt_root.
+
+                "Create the TEXT node:
+                CREATE DATA lr_s_txt_text.
+                lr_s_txt_text->key = /bobf/cl_frw_factory=>get_new_key( ).
+                lr_s_txt_text->text_type = 'YWEKS'.
+                lr_s_txt_text->language_code = sy-langu.
+                lr_s_txt_text->user_id_cr = sy-uname.
+                GET TIME STAMP FIELD lvtim.
+                lr_s_txt_text->datetime_cr = lvtim.
+
+                APPEND INITIAL LINE TO lt_mod ASSIGNING <ls_mod>.
+
+                <ls_mod>-node = lv_txt_key.
+                <ls_mod>-change_mode = /bobf/if_frw_c=>sc_modify_create.
+                <ls_mod>-source_node = /scmtms/if_suppfreightinvreq_c=>sc_node-textcollection.
+                <ls_mod>-source_key  = lr_s_txt_root->key.
+                <ls_mod>-key         = lr_s_txt_text->key.
+                <ls_mod>-data        = lr_s_txt_text.
+                <ls_mod>-association = lv_txt_assoc.
+
+*create content
+                CREATE DATA lr_s_txt_cont.
+                lr_s_txt_cont->key = /bobf/cl_frw_factory=>get_new_key( ).
+                lv_text = lv_centro.
+                lr_s_txt_cont->text = |{ lv_text ALPHA = OUT }|.
+                APPEND INITIAL LINE TO lt_mod ASSIGNING <ls_mod>.
+                <ls_mod>-node = lv_txt_key2.
+                <ls_mod>-change_mode = /bobf/if_frw_c=>sc_modify_create.
+                <ls_mod>-source_node = lv_txt_key.
+                <ls_mod>-source_key  = lr_s_txt_text->key.
+                <ls_mod>-key         = lr_s_txt_cont->key .
+                <ls_mod>-data        = lr_s_txt_cont.
+                <ls_mod>-association = lv_assocon_key.
+
+*================================================================================================================
+
+                DATA(lr_serv_mgr) = /bobf/cl_tra_serv_mgr_factory=>get_service_manager(
+                    iv_bo_key = /scmtms/if_suppfreightinvreq_c=>sc_bo_key ).
+
+                CALL METHOD lr_serv_mgr->modify
+                  EXPORTING
+                    it_modification = lt_mod
+                  IMPORTING
+                    eo_change       = lo_change
+                    eo_message      = lo_message.
+              ENDIF.
+            ENDIF.
+          ENDIF.
+        ENDIF.
+
+      ENDIF.
+    ENDIF.
